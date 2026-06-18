@@ -1,2 +1,10 @@
 [server]
-maxUploadSize = 500
+maxUploadSize = 2048
+maxMessageSize = 2048
+enableXsrfProtection = false
+enableCORS = false
+headless = true
+runOnSave = false
+fileWatcherType = "none"
+enableStaticServing = true
+

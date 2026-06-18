@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: transparent;
+    color: #f1f5f9;
+  }
+
+  .upload-zone {
+    border: 2px dashed rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    background: rgba(255,255,255,0.015);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 110px;
+  }
+  .upload-zone:hover {
+    border-color: rgba(124, 58, 237, 0.5);
+    background: rgba(124, 58, 237, 0.04);
+  }
+  .upload-zone.dragover {
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.08);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
+    transform: scale(1.01);
+  }
+  .upload-icon { font-size: 1.6rem; opacity: 0.9; }
+  .upload-text { color: #94a3b8; font-size: 0.85rem; line-height: 1.5; }
+  .upload-text strong { color: #06b6d4; cursor: pointer; }
+  .upload-text strong:hover { text-decoration: underline; }
+  .upload-hint { font-size: 0.72rem; color: #64748b; }
+
+  .file-list { margin-top: 0.5rem; width: 100%; }
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.4rem 0.65rem;
+    background: rgba(124, 58, 237, 0.06);
+    border: 1px solid rgba(124, 58, 237, 0.15);
+    border-radius: 8px;
+    margin-bottom: 0.3rem;
+    font-size: 0.8rem;
+    transition: background 0.15s;
+  }
+  .file-item:hover { background: rgba(124, 58, 237, 0.1); }
+  .file-icon { font-size: 0.85rem; flex-shrink: 0; }
+  .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #e2e8f0;
+  }
+  .file-size { color: #64748b; font-size: 0.7rem; flex-shrink: 0; }
+  .file-remove {
+    color: #f87171;
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+    padding: 2px;
+  }
+  .file-remove:hover { opacity: 1; }
+
+  .status {
+    font-size: 0.76rem;
+    margin-top: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    text-align: center;
+  }
+  .status.reading {
+    color: #06b6d4;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.15);
+  }
+  .status.done {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.15);
+  }
+  .status.error {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.15);
+  }
+
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<div class="upload-zone" id="uploadZone">
+  <div class="upload-icon">📁</div>
+  <div class="upload-text">
+    Drag and drop files here<br>
+    or <strong id="browseBtn">Browse files</strong>
+  </div>
+  <div class="upload-hint" id="hintText"></div>
+</div>
+<input type="file" id="fileInput">
+<div class="file-list" id="fileList"></div>
+<div id="statusArea"></div>
+
+<script>
+  /* ══════════════════════════════════════════════════════════════════════
+   * Inline Streamlit Component Protocol — zero external dependencies.
+   *
+   * Replaces the broken https://cdn.streamlit.io/components/v0/streamlit-component-lib.js
+   * which no longer resolves (DNS: no such host).
+   * ══════════════════════════════════════════════════════════════════════ */
+  var Streamlit = (function() {
+    function sendMsg(type, data) {
+      var msg = Object.assign({ isStreamlitMessage: true, type: type }, data || {});
+      window.parent.postMessage(msg, "*");
+    }
+
+    // Listen for message from Streamlit parent and dispatch CustomEvent
+    window.addEventListener("message", function(event) {
+      if (event.data && event.data.type === "streamlit:render") {
+        var customEvent = new CustomEvent("streamlit:render", {
+          detail: {
+            args: event.data.args || {},
+            disabled: !!event.data.disabled,
+            theme: event.data.theme
+          }
+        });
+        window.dispatchEvent(customEvent);
+      }
+    });
+
+    return {
+      setComponentReady: function() {
+        sendMsg("streamlit:componentReady", { apiVersion: 1 });
+      },
+      setComponentValue: function(value) {
+        sendMsg("streamlit:setComponentValue", { value: value });
+      },
+      setFrameHeight: function(height) {
+        if (height === undefined || height === null) {
+          height = document.body.scrollHeight;
+        }
+        sendMsg("streamlit:setFrameHeight", { height: height });
+      }
+    };
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * Component Logic — unchanged from the original
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  const uploadZone = document.getElementById('uploadZone');
+  const fileInput  = document.getElementById('fileInput');
+  const fileListEl = document.getElementById('fileList');
+  const statusArea = document.getElementById('statusArea');
+  const hintText   = document.getElementById('hintText');
+
+  let uploadedFiles = [];
+  let componentArgs = {};
+
+  /* ── Streamlit lifecycle ─────────────────────────────────────────── */
+
+  function onRender(event) {
+    componentArgs = event.detail.args || {};
+
+    fileInput.accept  = componentArgs.accept || '*';
+    fileInput.multiple = componentArgs.multiple !== false;
+
+    const types = (componentArgs.accept || '*')
+      .replace(/\./g, '').toUpperCase().split(',').join(', ');
+    hintText.textContent = 'Accepts: ' + types;
+
+    Streamlit.setFrameHeight();
+  }
+  window.addEventListener('streamlit:render', onRender);
+
+  /* ── Drag & Drop ─────────────────────────────────────────────────── */
+
+  uploadZone.addEventListener('dragover', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    uploadZone.classList.add('dragover');
+  });
+  uploadZone.addEventListener('dragleave', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    uploadZone.classList.remove('dragover');
+  });
+  uploadZone.addEventListener('drop', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    uploadZone.classList.remove('dragover');
+    processFiles(e.dataTransfer.files);
+  });
+
+  /* ── Click to browse ─────────────────────────────────────────────── */
+
+  uploadZone.addEventListener('click', function() { fileInput.click(); });
+  fileInput.addEventListener('change', function(e) {
+    processFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  /* ── Clipboard paste ─────────────────────────────────────────────── */
+
+  document.addEventListener('paste', function(e) {
+    var items = e.clipboardData ? e.clipboardData.items : [];
+    var files = [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        var f = items[i].getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length > 0) processFiles(files);
+  });
+
+  /* ── Process files ───────────────────────────────────────────────── */
+
+  function processFiles(fileList) {
+    if (!fileList || fileList.length === 0) return;
+
+    showStatus('reading', '⏳ Reading ' + fileList.length + ' file(s)…');
+
+    var promises = [];
+    for (var i = 0; i < fileList.length; i++) {
+      promises.push(readAsBase64(fileList[i]));
+    }
+
+    Promise.all(promises).then(function(results) {
+      if (componentArgs.multiple === false) {
+        uploadedFiles = [results[results.length - 1]];
+      } else {
+        uploadedFiles = uploadedFiles.concat(results);
+      }
+      renderFileList();
+      sendValue();
+      showStatus('done', '✓ ' + uploadedFiles.length + ' file(s) ready');
+      setTimeout(clearStatus, 2500);
+    }).catch(function(err) {
+      showStatus('error', '✕ Error: ' + err.message);
+    });
+  }
+
+  function readAsBase64(file) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() {
+        resolve({
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          data: reader.result
+        });
+      };
+      reader.onerror = function() { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /* ── File list UI ────────────────────────────────────────────────── */
+
+  function renderFileList() {
+    fileListEl.innerHTML = '';
+    uploadedFiles.forEach(function(file, idx) {
+      var div = document.createElement('div');
+      div.className = 'file-item';
+
+      var sizeStr = file.size < 1024 * 1024
+        ? (file.size / 1024).toFixed(1) + ' KB'
+        : (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+
+      var icon = file.type && file.type.indexOf('image/') === 0 ? '🖼' :
+                 file.type && file.type.indexOf('video/') === 0 ? '🎬' : '📄';
+
+      div.innerHTML =
+        '<span class="file-icon">' + icon + '</span>' +
+        '<span class="file-name">' + escapeHtml(file.name) + '</span>' +
+        '<span class="file-size">' + sizeStr + '</span>' +
+        '<span class="file-remove" data-idx="' + idx + '">✕</span>';
+
+      fileListEl.appendChild(div);
+    });
+
+    fileListEl.querySelectorAll('.file-remove').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var idx = parseInt(e.target.getAttribute('data-idx'));
+        uploadedFiles.splice(idx, 1);
+        renderFileList();
+        sendValue();
+      });
+    });
+
+    Streamlit.setFrameHeight();
+  }
+
+  function escapeHtml(str) {
+    var d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  /* ── Send data to Python ─────────────────────────────────────────── */
+
+  function sendValue() {
+    Streamlit.setComponentValue(uploadedFiles.length === 0 ? null : uploadedFiles);
+  }
+
+  /* ── Status indicator ────────────────────────────────────────────── */
+
+  function showStatus(type, text) {
+    statusArea.innerHTML = '<div class="status ' + type + '">' + text + '</div>';
+    Streamlit.setFrameHeight();
+  }
+  function clearStatus() {
+    statusArea.innerHTML = '';
+    Streamlit.setFrameHeight();
+  }
+
+  /* ── Ready ───────────────────────────────────────────────────────── */
+  Streamlit.setComponentReady();
+  Streamlit.setFrameHeight();
+</script>
+</body>
+</html>
